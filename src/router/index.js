@@ -1,37 +1,20 @@
 // src/router/index.js
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuth } from '@/modules/shared/stores/useAuth'
-
-// These must export named arrays: `export const businessRoutes = [...]` etc.
+import { sharedRoutes }   from '@/router/routes.shared'   // <— bring them in
 import { businessRoutes } from '@/modules/business/router'
 import { workerRoutes }   from '@/modules/worker/router'
-
-const publicRoutes = [
-  {
-    path: '/',
-    name: 'splash',
-    component: () => import('@/modules/shared/views/StartScreen.vue'), // <-- update to real path
-    meta: { guestOnly: true },
-  },
-  {
-    path: '/login',
-    name: 'login',
-    component: () => import('@/modules/shared/views/Login.vue'), // <-- update to real path
-    meta: { guestOnly: true },
-  },
-]
 
 const notFound = {
   path: '/:pathMatch(.*)*',
   name: 'not-found',
-  component: () => import('@/modules/shared/views/NotFound.vue'), // <-- update to real path
+  component: () => import('@/modules/shared/views/NotFound.vue'),
 }
 
-
 const router = createRouter({
-  history: createWebHistory(), // add base if you deploy under a sub-path
+  history: createWebHistory(),
   routes: [
-    ...publicRoutes,
+    ...sharedRoutes,   // <— use your shared file here
     ...businessRoutes,
     ...workerRoutes,
     notFound,
@@ -45,26 +28,17 @@ function homeFor(role) {
 router.beforeEach((to) => {
   const auth = useAuth()
 
-  // Derived meta across matched records (handles parent layouts)
-  const requiresAuth = to.matched.some(r => r.meta && r.meta.requiresAuth)
-  const rolesFromMatched = to.matched.flatMap(r => (r.meta?.roles || []))
-  const hasRoleGate = rolesFromMatched.length > 0
+  const requiresAuth = to.matched.some(r => r.meta?.requiresAuth)
+  const guestOnly    = to.matched.some(r => r.meta?.guestOnly)
+  const rolesNeeded  = to.matched.flatMap(r => r.meta?.roles || [])
 
-  // 1) Logged-in users shouldn't see guest-only pages
-  if (to.matched.some(r => r.meta && r.meta.guestOnly) && auth.isAuthenticated) {
-    return homeFor(auth.role)
-  }
-
-  // 2) Protected routes require auth
+  if (guestOnly && auth.isAuthenticated) return homeFor(auth.role)
   if (requiresAuth && !auth.isAuthenticated) {
     return { name: 'login', query: { redirect: to.fullPath } }
   }
-
-  // 3) Role-gated routes
-  if (requiresAuth && hasRoleGate && auth.role && !rolesFromMatched.includes(auth.role)) {
+  if (requiresAuth && rolesNeeded.length && auth.role && !rolesNeeded.includes(auth.role)) {
     return homeFor(auth.role)
   }
-
   return true
 })
 

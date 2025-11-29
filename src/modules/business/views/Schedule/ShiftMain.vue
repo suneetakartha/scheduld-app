@@ -1,209 +1,111 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
+import { storeToRefs } from 'pinia'
+import { useAuth } from '@/modules/shared/stores/useAuth'
+import { useShiftsStore, type Shift } from '@/modules/shared/stores/useShiftsStore'
+import ShiftCard from '@/components/ShiftCard.vue'
 
 type Tab = 'source' | 'schedule'
 
-interface Worker {
-  id: number
-  name: string
-  avatar: string
-  rating: number
-  ratingCount: number
-  position: string
-  site: string
-  hours: string
-  earnings: number
-  wage: number
+const auth  = useAuth()
+const store = useShiftsStore()
+const { tab } = storeToRefs(store)           // uses store.tab you already have
+
+// choose a day (wire this to your calendar later)
+// Default is computed from store: earliest date within the upcoming week that
+// has shifts for the active tab. Falls back to today if nothing found.
+const selectedDate = ref<string>('')
+
+function formatISO(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+    d.getDate()
+  ).padStart(2, '0')}`
 }
 
-const tab = ref<Tab>('source')
+function setSelectedDateToNextActiveDay() {
+  const today = new Date()
+  const end = new Date(today)
+  end.setDate(today.getDate() + 6) // upcoming 7 days including today
 
-const nowWorking = ref<Worker[]>([
-  {
-    id: 1,
-    name: 'Maddie Byrd',
-    avatar: 'https://app.codigma.io/api/uploads/assets/498cb9f8-ce1f-4e2e-a0c9-d2aeec4b4383.svg',
-    rating: 4.3,
-    ratingCount: 13,
-    position: 'Bartender',
-    site: 'Site 1',
-    hours: '4.25 hours (5:55 pm - Now)',
-    earnings: 106.25,
-    wage: 25,
-  },
-])
+  // collect dates that have shifts for the current tab/origin
+  const shiftsForOrigin = store.byOrigin(tab.value as any)
+  const available = new Set(shiftsForOrigin.map((s: any) => s.date))
 
+  for (let d = new Date(today); d <= end; d.setDate(d.getDate() + 1)) {
+    const iso = formatISO(d)
+    if (available.has(iso)) {
+      selectedDate.value = iso
+      return
+    }
+  }
+
+  // fallback — today's ISO
+  selectedDate.value = formatISO(today)
+}
+
+// fetch for the month once
+onMounted(async () => {
+  await store.fetchMonthShifts(new Date(), auth.role || 'business')
+  // set default selectedDate after data is loaded
+  setSelectedDateToNextActiveDay()
+})
+
+// Recompute default selected date when the tab changes
+watch(
+  () => tab.value,
+  () => {
+    // If there are shifts for the new tab, pick the next active day.
+    setSelectedDateToNextActiveDay()
+  }
+)
+
+// filter by selected date + current tab (origin)
+const listForTab = computed<Shift[]>(() => {
+  return store.byDateAndOrigin(selectedDate.value, tab.value)
+})
+
+// let the tab buttons drive the store tab
 function setTab(next: Tab) {
-  tab.value = next
-  // later: fetch shifts based on tab
+  store.setTab(next)
 }
 </script>
 
 <template>
-  <!-- This lives inside MobileStage's scroll area -->
-  <div class="h-full overflow-y-auto bg-[#F6F6F6]">
-    <!-- Timeline Tabs Header -->
-    <section class="bg-[#EFF2F1] pb-4">
-      <div
-        class="flex w-full justify-between items-center bg-[#EFF2F1] h-12 rounded-b-xl shadow-sm relative z-10"
+  <div class="h-full overflow-y-auto bg-[#F6F6F6] p-4 space-y-3">
+    <!-- Tabs -->
+    <div class="flex bg-[#EFF2F1] rounded-lg overflow-hidden">
+      <button
+        class="flex-1 py-2 font-medium"
+        :class="tab === 'schedule' ? 'text-[#4466A8] border-b-2 border-[#4466A8]' : 'text-gray-500'"
+        @click="setTab('schedule')"
       >
-        <!-- SwipeSource tab -->
-        <button
-          type="button"
-          :class="[
-            'flex-1 flex items-center justify-center h-12 cursor-pointer transition-colors border-b-4',
-            tab === 'source'
-              ? 'border-[#4466A8] bg-[#EFF2F1]'
-              : 'border-[#EFF2F1]'
-          ]"
-          @click="setTab('source')"
-        >
-          <span
-            :class="[
-              'text-sm',
-              tab === 'source' ? 'text-[#4466A8] font-medium' : 'text-[#8B8D98] font-normal'
-            ]"
-          >
-            SwipeSource
-          </span>
-        </button>
-
-        <div class="w-px h-6 bg-[#8B8D98]/25" />
-
-        <!-- SwipeSchedule tab -->
-        <button
-          type="button"
-          :class="[
-            'flex-1 flex items-center justify-center h-12 cursor-pointer transition-colors border-b-4',
-            tab === 'schedule'
-              ? 'border-[#4466A8] bg-[#EFF2F1]'
-              : 'border-[#EFF2F1]'
-          ]"
-          @click="setTab('schedule')"
-        >
-          <span
-            :class="[
-              'text-sm',
-              tab === 'schedule' ? 'text-[#4466A8] font-medium' : 'text-[#8B8D98] font-normal'
-            ]"
-          >
-            SwipeSchedule
-          </span>
-        </button>
-      </div>
-    </section>
-
-    <!-- Main shifts section -->
-    <section
-      class="w-full flex flex-col gap-2.5 py-6 px-4 bg-[#4466A8] rounded-b-2xl min-h-[260px] relative"
-    >
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="text-white font-medium text-[15px] tracking-wide">
-          Now Working
-        </h2>
-
-        <button type="button" class="opacity-80">
-          <span class="inline-block text-xs text-white/80">View all</span>
-        </button>
-      </div>
-
-      <!-- Cards -->
-      <TransitionGroup name="fade" tag="div">
-        <article
-          v-for="worker in nowWorking"
-          :key="worker.id"
-          class="bg-white rounded-xl shadow-md p-4 w-full max-w-[330px] flex flex-col gap-4 mx-auto"
-        >
-          <!-- Top row: site & menu -->
-          <div class="flex justify-between items-center w-full mb-0.5">
-            <div class="flex items-center gap-2">
-              <div class="w-2.5 h-2.5 rounded-full bg-[#4CAF50] border-[2.7px] border-[#EFF2F1]" />
-              <div class="text-xs text-[#8B8D98] font-medium ml-px">
-                {{ worker.position.toUpperCase() }} - {{ worker.site }}
-              </div>
-            </div>
-
-            <button type="button" class="opacity-85">
-              <span class="text-gray-400 text-lg leading-none">⋮</span>
-            </button>
-          </div>
-
-          <!-- Middle: avatar + info -->
-          <div class="flex justify-between items-start w-full gap-2">
-            <div class="flex gap-4 w-4/5">
-              <div
-                class="rounded-full overflow-hidden w-12 h-12 border border-[#EFF2F1] bg-[#F6F6F6] flex-shrink-0"
-              >
-                <img :src="worker.avatar" alt="" class="w-full h-full object-cover" />
-              </div>
-
-              <div class="flex flex-col gap-1.5">
-                <!-- Name + rating -->
-                <div class="flex items-center gap-2">
-                  <div class="text-[#4466A8] text-base font-bold">
-                    {{ worker.name }}
-                  </div>
-                  <div class="flex items-center gap-1 text-sm">
-                    <span class="text-yellow-400 text-xs">★</span>
-                    <span class="text-[#8B8D98] font-medium opacity-85 ml-px">
-                      {{ worker.rating }} ({{ worker.ratingCount }})
-                    </span>
-                  </div>
-                </div>
-
-                <!-- Hours -->
-                <div class="flex items-center text-sm text-[#8B8D98] gap-1.5">
-                  <span class="w-4 h-4 rounded-full bg-black/10 inline-block" />
-                  <span>{{ worker.hours }}</span>
-                </div>
-
-                <!-- Earnings -->
-                <div class="flex items-center text-sm text-[#8B8D98] gap-1.5">
-                  <span class="w-4 h-4 rounded-full bg-black/10 inline-block" />
-                  <span>Current Earnings - ${{ worker.earnings.toFixed(2) }}</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Wage pill -->
-            <div
-              class="bg-[#F6F6F6] px-3.5 py-1.5 text-[#26B46A] font-bold text-base mt-2 rounded-lg shadow-sm whitespace-nowrap ml-2 self-end"
-            >
-              ${{ worker.wage }}/hr
-            </div>
-          </div>
-
-          <!-- Bottom row: actions -->
-          <div class="flex w-full justify-between items-center mt-1 gap-2">
+       Schedule
+      </button>
             <button
-              type="button"
-              class="flex-1 rounded-lg min-h-[37px] bg-[#EFF2F1] text-[#4466A8] text-base font-medium focus:outline-none"
-            >
-              View Profile
-            </button>
-            <button
-              type="button"
-              class="flex-1 rounded-lg min-h-[37px] bg-[#4466A8] text-white text-base font-medium ml-2 focus:outline-none"
-            >
-              Manage Shift
-            </button>
-          </div>
-        </article>
-      </TransitionGroup>
-    </section>
+        class="flex-1 py-2 font-medium"
+        :class="tab === 'source' ? 'text-[#4466A8] border-b-2 border-[#4466A8]' : 'text-gray-500'"
+        @click="setTab('source')"
+      >
+        Source
+      </button>
+    </div>
 
-    <!-- Spacer so content doesn’t hide behind NavBar -->
-    <div class="h-6" />
+    <h2 class="text-sm text-gray-600">Shifts — {{ selectedDate }} ({{ tab }})</h2>
+
+    <ShiftCard
+      v-for="s in listForTab"
+      :key="s.id"
+      :site="s.site || 'Site'"
+      :shiftTitle="s.position || 'Shift'"
+      :avatarUrl="s.avatar"
+      :dateLabel="new Date(s.date).toLocaleDateString()"
+      :timeLabel="s.start && s.end ? `${s.start} – ${s.end}` : ''"
+      :staffedLabel="s.past ? 'Completed' : 'Upcoming'"
+      checklistLabel="Set up Prep Checklist"
+    />
+
+    <p v-if="!listForTab.length" class="text-center text-gray-400 py-8">
+      No {{ tab }} shifts for {{ selectedDate }}.
+    </p>
   </div>
 </template>
-
-<style scoped>
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.3s;
-}
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
-</style>

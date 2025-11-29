@@ -73,7 +73,7 @@
                 <button
                   type="button"
                   @click="continueWithGoogle"
-                  class="w-full px-2 py-3.5 rounded-xl outline outline-1 outline-offset-[-1px] outline-gray-200 inline-flex justify-center items-center gap-2 hover:bg-gray-50"
+                  class="w-full px-2 py-3.5 rounded-xl outline-1 outline-offset-[-1px] outline-gray-200 inline-flex justify-center items-center gap-2 hover:bg-gray-50"
                 >
                   <!-- Simple “G” mark -->
                   <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">

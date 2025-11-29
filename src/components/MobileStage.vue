@@ -1,8 +1,8 @@
 <template>
   <!-- centered horizontally; transparent page background -->
-  <section class="flex justify-center bg-transparent text-white">
+  <section class="flex justify-center bg-transparent text-black/70">
     <div
-      class="relative overflow-hidden bg-black"
+      class="relative overflow-hidden bg-[#EFF2F1]"
       :style="{
         width: w + 'px',
         height: h + 'px',
