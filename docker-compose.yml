@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   nginx:
     image: nginx:stable
@@ -10,7 +8,7 @@ services:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - app
-      - mongo           # optional but nice: make nginx wait for app + mongo
+      - mongo
 
   app:
     build: .
@@ -19,14 +17,14 @@ services:
       - .env
     restart: always
     depends_on:
-      - mongo           # app will need mongo
+      - mongo
 
   mongo:
     image: mongo:6
-    container_name: myapp-mongo
+    container_name: scheduld-mongo
     restart: always
     ports:
-      - "27017:27017"        # exposes to your host
+      - "27017:27017"        # exposes Mongo to the host
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
       MONGO_INITDB_ROOT_PASSWORD: example
