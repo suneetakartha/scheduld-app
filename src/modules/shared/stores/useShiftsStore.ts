@@ -9,8 +9,8 @@ export type ShiftOrigin = 'source' | 'schedule'
 export type Shift = {
   id: number | string
   date: string         // 'YYYY-MM-DD'
-  start?: string       // '10:00'
-  end?: string         // '15:00'
+  start?: string
+  end?: string
   site?: string
   position?: string
   workerName?: string
@@ -18,19 +18,19 @@ export type Shift = {
   earnings?: number
   avatar?: string
   past?: boolean
-  origin: ShiftOrigin  // <-- NEW
+  origin: ShiftOrigin
 }
+
 type FetchArgs =
-  | { role: Role; month?: string }     // YYYY-MM (preferred)
-  | { role: Role; start?: string; end?: string } // YYYY-MM-DD range
+  | { role: Role; month?: string }                     // YYYY-MM
+  | { role: Role; start?: string; end?: string }       // YYYY-MM-DD range
 
 export const useShiftsStore = defineStore('shifts', () => {
-  const tab   = ref<Tab>('source')
-  const title = ref<string>('Upcoming Shifts')
+  const tab    = ref<Tab>('source')
+  const title  = ref<string>('Upcoming Shifts')
   const shifts = ref<Shift[]>([])
 
-  // ------- getters / derived -------
-  /** Map of date -> Shift[] for easy lookups in views */
+  // --------- derived ----------
   const byDate = computed(() => {
     const m = new Map<string, Shift[]>()
     for (const s of shifts.value) {
@@ -41,9 +41,7 @@ export const useShiftsStore = defineStore('shifts', () => {
     return m
   })
 
-  /** Convenience getter: all dates that currently have shifts */
   const datesWithShifts = computed<number[]>(() => {
-    // gather unique day numbers (1..31) from the current shifts set
     const set = new Set<number>()
     for (const s of shifts.value) {
       const d = new Date(s.date)
@@ -51,82 +49,106 @@ export const useShiftsStore = defineStore('shifts', () => {
     }
     return Array.from(set).sort((a, b) => a - b)
   })
- function byDateAndOrigin(date: string, origin: ShiftOrigin) {
+
+  function byDateAndOrigin(date: string, origin: ShiftOrigin) {
     return shifts.value.filter(s => s.date === date && s.origin === origin)
   }
   function byOrigin(origin: ShiftOrigin) {
     return shifts.value.filter(s => s.origin === origin)
   }
-  // ------- actions -------
+
+  // --------- actions ----------
   function setTab(next: Tab) {
     tab.value = next
-    // Optional: adjust title based on tab
     title.value = next === 'source' ? 'Upcoming Shifts' : 'SwipeSchedule'
   }
-
   function setTitle(next: string) {
     title.value = next
   }
 
-  /**
-   * Fetch shifts for the current role/month (or range).
-   * Replace the mock with a real API call as you wire up your backend.
-   */
   async function fetchShifts(args: FetchArgs) {
-    // Example: you might call something like:
-    // const { data } = await axios.get('/api/shifts', { params: args })
-    // shifts.value = data
+    // NOTE: args.role is currently unused; keep for future filtering.
 
-    // ---- Mock data (works for both roles) ----
-    const baseMonth = '2025-12'
+    // --- month base ---
+    const today = new Date()
+    const y = today.getFullYear()
+    const m = today.getMonth() + 1
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const baseMonth = ('month' in args && args.month && args.month) ? args.month : `${y}-${pad(m)}`
+
+    // helper to create YYYY-MM-DD in current fetch month
+    const iso = (day: number) => `${baseMonth}-${pad(day)}`
+    const rand = (min: number, max: number) => min + Math.floor(Math.random() * (max - min + 1))
+
+    // Ensure *unique* IDs
+    let id = 1
+    const nextId = () => id++
+
     const sample: Shift[] = [
-      // upcoming
       {
-        id: 1,
-        date: `${baseMonth}-24`,
-        start: '10:00',
-        end: '15:00',
-        site: 'Site 1',
-        position: 'Bartender',
-        workerName: 'Maddie Byrd',
-        wage: 25,
-        earnings: 106.25,
+        id: nextId(),
+        date: iso(rand(2, 25)),
+        start: '10:00', end: '15:00',
+        site: 'Site 1', position: 'Bartender', workerName: 'Maddie Byrd',
+        wage: 25, earnings: 106.25,
         avatar: 'https://app.codigma.io/api/uploads/assets/498cb9f8-ce1f-4e2e-a0c9-d2aeec4b4383.svg',
-        past: false,
         origin: 'source',
       },
       {
-        id: 2,
-        date: `${baseMonth}-25`,
-        start: '09:00',
-        end: '17:00',
-        site: 'Site 2',
-        position: 'Server',
-        workerName: 'Jay Dunn',
-        wage: 22,
-        earnings: 176,
+        id: nextId(),
+        date: iso(rand(3, 26)),
+        start: '09:00', end: '17:00',
+        site: 'Site 2', position: 'Server', workerName: 'Jay Dunn',
+        wage: 22, earnings: 176,
         avatar: 'https://placehold.co/48',
-        past: false,
         origin: 'schedule',
       },
-      // past
       {
-        id: 3,
-        date: `${baseMonth}-10`,
-        start: '08:00',
-        end: '12:00',
-        site: 'Site 3',
-        position: 'Host',
-        workerName: 'Alex Kim',
-        wage: 20,
-        earnings: 80,
+        id: nextId(),
+        date: iso(2), // likely “earlier in month”
+        start: '08:00', end: '12:00',
+        site: 'Site 3', position: 'Host', workerName: 'Alex Kim',
+        wage: 20, earnings: 80,
         avatar: 'https://placehold.co/48',
-        past: true,
         origin: 'schedule',
       },
     ]
 
-  
+    // Guarantee at least one near “today” for each origin to avoid empty screens.
+    // Ensure the generated day is not before today (important near month end).
+    const todayDay = today.getDate()
+    let near1 = Math.min(todayDay + 1, 28)
+    if (near1 < todayDay) near1 = todayDay
+    let near2 = Math.min(todayDay + 2, 29)
+    if (near2 < todayDay) near2 = todayDay
+
+    sample.push({
+      id: nextId(),
+      date: iso(near1),
+      start: '12:00', end: '16:00',
+      site: 'Site 4', position: 'Runner', workerName: 'Chris Lee',
+      wage: 21, earnings: 84,
+      avatar: 'https://placehold.co/48',
+      origin: 'source',
+    })
+    sample.push({
+      id: nextId(),
+      date: iso(near2),
+      start: '14:00', end: '20:00',
+      site: 'Site 5', position: 'Line Cook', workerName: 'Pat Diaz',
+      wage: 24, earnings: 144,
+      avatar: 'https://placehold.co/48',
+      origin: 'schedule',
+    })
+
+    // Correct the `past` flag using **midnight** comparison (so “today” is NOT past)
+    const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+    for (const s of sample) {
+      const d = new Date(s.date)
+      s.past = !isNaN(d.getTime()) ? d < todayMidnight : false
+    }
+
+    // Optional: filter by args.month or start/end
     let filtered = sample
     if ('month' in args && args.month) {
       filtered = sample.filter(s => s.date.startsWith(args.month))
@@ -139,15 +161,18 @@ export const useShiftsStore = defineStore('shifts', () => {
       })
     }
 
-
+    // debug: log what sample was generated and what's returned after filtering
+    try {
+      // avoid leaking large objects in prod; this is temporary debug info
+      // eslint-disable-next-line no-console
+      console.log('[useShiftsStore] fetchShifts args=', args, 'sample=', sample, 'filtered=', filtered)
+    } catch (e) {
+      /* ignore */
+    }
 
     shifts.value = filtered
   }
 
-  /**
-   * Convenience: fetch for a Date object (converts to YYYY-MM).
-   * Useful from Month views.
-   */
   async function fetchMonthShifts(current: Date, role: Role) {
     const ym = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}`
     return fetchShifts({ role, month: ym })

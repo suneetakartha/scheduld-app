@@ -1,49 +1,48 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
+import { storeToRefs } from 'pinia'
+import { useAuth } from '@/modules/shared/stores/useAuth'
+import { useShiftsStore, type Shift } from '@/modules/shared/stores/useShiftsStore'
 import Calendar from '@/components/Calendar.vue'
 import ShiftCard from '@/components/ShiftCard.vue'
-import { useShiftsStore } from '@/modules/shared/stores/useShiftsStore'
 
-const currentDate = ref(new Date())
+// stores
+const auth  = useAuth()
+const store = useShiftsStore()
+const { datesWithShifts } = storeToRefs(store)
+
+// calendar state
+const currentDate  = ref(new Date())
 const selectedDate = ref<Date | null>(null)
 
-const auth = useAuth()
-const store = useShiftsStore()
+// month label (optional, if you show one)
+const monthLabel = computed(() =>
+  currentDate.value.toLocaleString(undefined, { month: 'long', year: 'numeric' })
+)
 
-onMounted(() => {
-  store.fetchMonthShifts(currentDate.value, auth.role || 'business')
-})
+// fetch month when the visible month changes
+async function fetchMonth() {
+  await store.fetchMonthShifts(currentDate.value, auth.role || 'business')
+  // pick a sensible default (first day in the month that has shifts)
+  const days = datesWithShifts.value
+  if (days.length) {
+    selectedDate.value = new Date(
+      currentDate.value.getFullYear(),
+      currentDate.value.getMonth(),
+      days[0]
+    )
+  } else {
+    selectedDate.value = null
+  }
+}
 
+onMounted(fetchMonth)
 watch(
   () => `${currentDate.value.getFullYear()}-${currentDate.value.getMonth()}`,
-  () => store.fetchMonthShifts(currentDate.value, auth.role || 'business')
+  fetchMonth
 )
 
-// Convert store data → days that have shifts (numbers like [1,7,9,...])
-const datesWithShifts = computed<number[]>(() => {
-  const y = currentDate.value.getFullYear()
-  const m = currentDate.value.getMonth()
-  // Assuming store has an array like [{ date: '2025-11-24', ... }, ...]
-  const set = new Set<number>()
-  for (const s of store.shifts) {
-    const d = new Date(s.date) // s.date ISO like '2025-11-24'
-    if (d.getFullYear() === y && d.getMonth() === m) set.add(d.getDate())
-  }
-  return Array.from(set).sort((a,b)=>a-b)
-})
-
-// Filter for the selected day (and whatever tab/filter logic you want)
-const dayKey = computed(() =>
-  selectedDate.value
-    ? selectedDate.value.toISOString().slice(0,10)
-    : null
-)
-
-const shiftsForSelectedDay = computed(() =>
-  dayKey.value ? store.shifts.filter(s => s.date === dayKey.value) : []
-)
-
-// Calendar event handlers
+// calendar controls
 function prevMonth() {
   const d = new Date(currentDate.value)
   d.setMonth(d.getMonth() - 1)
@@ -57,10 +56,19 @@ function nextMonth() {
 function selectDate(d: Date) {
   selectedDate.value = d
 }
+
+// list for selected calendar day (both origins shown here; filter if desired)
+const listForDay = computed<Shift[]>(() => {
+  if (!selectedDate.value) return []
+  const iso = `${selectedDate.value.getFullYear()}-${String(selectedDate.value.getMonth()+1).padStart(2,'0')}-${String(selectedDate.value.getDate()).padStart(2,'0')}`
+  return store.byDate.get(iso) ?? []
+})
 </script>
 
 <template>
-  <div class="px-4 py-4">
+  <div class="h-full overflow-y-auto bg-[#F6F6F6] p-4 space-y-4">
+    <h2 class="text-base font-semibold text-slate-800">{{ monthLabel }}</h2>
+
     <Calendar
       :currentDate="currentDate"
       :selectedDate="selectedDate"
@@ -70,14 +78,20 @@ function selectDate(d: Date) {
       @selectDate="selectDate"
     />
 
-    <section class="mt-4 space-y-3">
+    <section class="space-y-3 mt-2">
       <ShiftCard
-        v-for="shift in shiftsForSelectedDay"
-        :key="shift.id"
-        :shift="shift"
+        v-for="s in listForDay"
+        :key="s.id"
+        :site="s.site || 'Site'"
+        :shiftTitle="s.position || 'Shift'"
+        :avatarUrl="s.avatar"
+        :dateLabel="new Date(s.date).toLocaleDateString()"
+        :timeLabel="s.start && s.end ? `${s.start} – ${s.end}` : ''"
+        :staffedLabel="s.past ? 'Completed' : 'Upcoming'"
+        checklistLabel="Set up Prep Checklist"
       />
-      <p v-if="!shiftsForSelectedDay.length" class="text-slate-400 text-center py-8">
-        No shifts for the selected date.
+      <p v-if="!listForDay.length" class="text-center text-gray-400 py-6">
+        No shifts for the selected day.
       </p>
     </section>
   </div>
